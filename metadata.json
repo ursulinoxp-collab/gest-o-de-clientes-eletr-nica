@@ -1,0 +1,7 @@
+{
+  "name": "Copy of Ponto da Eletrônica - Gestão de Assistência",
+  "description": "Sistema profissional para gestão de ordens de serviço, orçamentos e controle de assistência técnica com geração de PDFs e anexo de imagens.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}

@@ -3,6 +3,14 @@ import React from 'react';
 import { ServiceOrder, ServiceStatus } from '../types';
 import { TrendingUp, Clock, CheckCircle2, ClipboardCheck, FilePlus, DollarSign, ArrowRight } from 'lucide-react';
 
+// Helper local para formatar data sem bug de fuso horário
+const formatDateDisplay = (dateStr: string) => {
+  if (!dateStr) return '---';
+  const parts = dateStr.split('-');
+  if (parts.length !== 3) return dateStr;
+  return `${parts[2]}/${parts[1]}/${parts[0]}`;
+};
+
 interface DashboardProps {
   orders: ServiceOrder[];
   setView: (view: any) => void;
@@ -89,7 +97,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ orders, setView, onCreateN
                   <p className="text-xl font-black text-slate-900">
                     {Number(order.serviceValue || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                   </p>
-                  <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest mt-1">{new Date(order.arrivalDate).toLocaleDateString('pt-BR')}</p>
+                  <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest mt-1">
+                    {formatDateDisplay(order.arrivalDate)}
+                  </p>
                 </div>
               </div>
             ))}

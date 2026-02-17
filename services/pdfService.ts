@@ -1,32 +1,66 @@
-
 import { jsPDF } from 'jspdf';
 import { ServiceOrder, ServiceStatus } from '../types';
 
-export const generateOrderPDF = (order: ServiceOrder) => {
+const safeStr = (val: any) => {
+  if (val === undefined || val === null) return '---';
+  return String(val).trim() || '---';
+};
+
+const formatPdfDate = (dateStr: string) => {
+  if (!dateStr || dateStr.trim() === "") return '---';
+  const parts = dateStr.split('-');
+  if (parts.length !== 3) return dateStr;
+  return `${parts[2]}/${parts[1]}/${parts[0]}`;
+};
+
+const sanitizeFileName = (name: string) => {
+  return name
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9]/g, '_')
+    .toUpperCase();
+};
+
+export const generateOrderPDF = async (order: ServiceOrder) => {
   try {
-    const doc = new jsPDF();
+    const doc = new jsPDF({
+      orientation: 'portrait',
+      unit: 'mm',
+      format: 'a4'
+    });
+
     const margin = 20;
     const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
     let currentY = 25;
 
-    // Header Branding
-    doc.setFillColor(249, 115, 22); // Orange-500
+    const checkPage = (needed: number) => {
+      if (currentY + needed > pageHeight - 20) {
+        doc.addPage();
+        currentY = 25;
+        return true;
+      }
+      return false;
+    };
+
+    // --- CABEÇALHO ---
+    doc.setFillColor(249, 115, 22); 
     doc.rect(0, 0, pageWidth, 40, 'F');
     
     doc.setTextColor(255, 255, 255);
-    doc.setFontSize(24);
+    doc.setFontSize(22);
     doc.setFont('helvetica', 'bold');
     doc.text('PONTO DA ELETRÔNICA', pageWidth / 2, 20, { align: 'center' });
     
     doc.setFontSize(10);
     doc.setFont('helvetica', 'normal');
     const title = order.status === ServiceStatus.ORCAMENTO ? 'ORÇAMENTO DE SERVIÇO' : 'ORDEM DE SERVIÇO';
-    doc.text(`${title} #${order.id.slice(0, 8).toUpperCase()}`, pageWidth / 2, 30, { align: 'center' });
+    doc.text(`${title} #${safeStr(order.id).slice(0, 8).toUpperCase()}`, pageWidth / 2, 30, { align: 'center' });
 
     doc.setTextColor(30, 41, 59);
     currentY = 55;
 
-    // Cliente Section
+    // --- 1. DADOS DO CLIENTE ---
     doc.setFontSize(12);
     doc.setFont('helvetica', 'bold');
     doc.text('1. DADOS DO CLIENTE', margin, currentY);
@@ -35,15 +69,16 @@ export const generateOrderPDF = (order: ServiceOrder) => {
     doc.setFontSize(10);
     doc.setFont('helvetica', 'normal');
     currentY += 10;
-    doc.text(`Nome: ${order.customerName}`, margin, currentY);
+    doc.text(`Nome: ${safeStr(order.customerName)}`, margin, currentY);
     currentY += 6;
-    doc.text(`Telefone: ${order.customerPhone}`, margin, currentY);
+    doc.text(`WhatsApp: ${safeStr(order.customerPhone)}`, margin, currentY);
     currentY += 6;
-    const addr = doc.splitTextToSize(`Endereço: ${order.customerAddress || 'N/A'}`, pageWidth - 40);
+    const addr = doc.splitTextToSize(`Endereço: ${safeStr(order.customerAddress)}`, pageWidth - (margin * 2));
     doc.text(addr, margin, currentY);
-    currentY += (addr.length * 6) + 5;
+    currentY += (addr.length * 5) + 8;
 
-    // Equipamento Section
+    // --- 2. EQUIPAMENTO ---
+    checkPage(30);
     doc.setFontSize(12);
     doc.setFont('helvetica', 'bold');
     doc.text('2. EQUIPAMENTO', margin, currentY);
@@ -52,61 +87,107 @@ export const generateOrderPDF = (order: ServiceOrder) => {
     doc.setFontSize(10);
     doc.setFont('helvetica', 'normal');
     currentY += 10;
-    doc.text(`Equipamento: ${order.equipmentType} ${order.equipmentBrand}`, margin, currentY);
+    const eqType = order.equipmentType === 'Outros' ? (order.equipmentCustomType || 'Outros') : order.equipmentType;
+    doc.text(`Aparelho: ${safeStr(eqType)}`, margin, currentY);
     currentY += 6;
-    const defect = doc.splitTextToSize(`Defeito Relatado: ${order.reportedDefect || 'Não informado'}`, pageWidth - 40);
-    doc.text(defect, margin, currentY);
-    currentY += (defect.length * 6) + 5;
+    doc.text(`Marca/Modelo: ${safeStr(order.equipmentBrand)}`, margin, currentY);
+    currentY += 6;
+    const defectLines = doc.splitTextToSize(`Defeito: ${safeStr(order.reportedDefect)}`, pageWidth - (margin * 2));
+    doc.text(defectLines, margin, currentY);
+    currentY += (defectLines.length * 5) + 8;
 
-    // Serviço Section
+    // --- 3. SERVIÇO ---
+    checkPage(40);
     doc.setFontSize(12);
     doc.setFont('helvetica', 'bold');
-    doc.text('3. DETALHES DO SERVIÇO', margin, currentY);
+    doc.text('3. SERVIÇO REALIZADO', margin, currentY);
     doc.line(margin, currentY + 2, pageWidth - margin, currentY + 2);
     
-    currentY += 10;
+    doc.setFontSize(10);
     doc.setFont('helvetica', 'normal');
-    const serviceText = doc.splitTextToSize(`Serviço Executado: ${order.servicePerformed || 'Em análise'}`, pageWidth - 40);
-    doc.text(serviceText, margin, currentY);
-    currentY += (serviceText.length * 6) + 5;
+    currentY += 10;
+    const serviceText = order.servicePerformed || 'Aguardando avaliação técnica.';
+    const serviceLines = doc.splitTextToSize(serviceText, pageWidth - (margin * 2));
+    serviceLines.forEach((line: string) => {
+      if(checkPage(6)) currentY += 5;
+      doc.text(line, margin, currentY);
+      currentY += 5;
+    });
+    currentY += 5;
 
+    // --- 4. FINANCEIRO ---
+    checkPage(40);
+    doc.setFontSize(12);
     doc.setFont('helvetica', 'bold');
-    doc.text(`VALOR TOTAL: ${Number(order.serviceValue).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`, margin, currentY);
+    doc.text('4. INFORMAÇÕES FINAIS', margin, currentY);
+    doc.line(margin, currentY + 2, pageWidth - margin, currentY + 2);
+    
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'normal');
+    currentY += 10;
+    doc.text(`Entrada: ${formatPdfDate(order.arrivalDate)}`, margin, currentY);
     currentY += 6;
-    doc.text(`GARANTIA: ${order.guaranteeDays} dias`, margin, currentY);
+    doc.text(`Saída: ${formatPdfDate(order.deliveryDate)}`, margin, currentY);
     currentY += 6;
-    doc.text(`ENTRADA: ${new Date(order.arrivalDate).toLocaleDateString('pt-BR')}`, margin, currentY);
-
-    // Fotos
+    doc.text(`Garantia: ${order.guaranteeDays === 0 ? 'Sem Garantia' : order.guaranteeDays + ' dias'}`, margin, currentY);
+    currentY += 10;
+    
+    doc.setFontSize(14);
+    doc.setFont('helvetica', 'bold');
+    const valorTotal = Number(order.serviceValue || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+    doc.text(`VALOR TOTAL: ${valorTotal}`, margin, currentY);
+    
+    // --- IMAGENS ---
     if (order.images && order.images.length > 0) {
       currentY += 15;
-      if (currentY > 220) { doc.addPage(); currentY = 20; }
-      doc.text('ANEXOS:', margin, currentY);
+      checkPage(45);
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'bold');
+      doc.text('FOTOS EM ANEXO:', margin, currentY);
       currentY += 10;
       
-      let x = margin;
-      order.images.forEach((img) => {
+      let xPos = margin;
+      for (const img of order.images) {
         try {
-          const format = img.includes('png') ? 'PNG' : 'JPEG';
-          doc.addImage(img, format, x, currentY, 40, 30);
-          x += 45;
-          if (x > 160) { x = margin; currentY += 35; }
-        } catch (e) { console.error(e); }
-      });
+          if (!img) continue;
+          checkPage(35);
+          // Detecção básica de formato para o jsPDF
+          let format = 'JPEG';
+          if (img.includes('image/png')) format = 'PNG';
+          if (img.includes('image/webp')) format = 'WEBP';
+          
+          doc.addImage(img, format, xPos, currentY, 40, 30, undefined, 'MEDIUM');
+          xPos += 45;
+          if (xPos > pageWidth - 50) {
+            xPos = margin;
+            currentY += 35;
+          }
+        } catch (imgError) {
+          console.warn("Falha ao adicionar imagem ao PDF", imgError);
+        }
+      }
     }
 
-    // Assinatura Footer
-    const footerY = 275;
+    // --- RODAPÉ ---
+    const footerY = pageHeight - 15;
     doc.setFontSize(8);
-    doc.setFont('helvetica', 'normal');
-    doc.line(pageWidth / 2 - 40, footerY - 10, pageWidth / 2 + 40, footerY - 10);
-    doc.text('Assinatura do Cliente', pageWidth / 2, footerY - 5, { align: 'center' });
-    doc.text('Ponto da Eletrônica - Excelência em Assistência Técnica', pageWidth / 2, footerY + 5, { align: 'center' });
+    doc.setTextColor(150, 150, 150);
+    doc.text('Ponto da Eletrônica - Gestão de Assistência Técnica', pageWidth / 2, footerY, { align: 'center' });
 
-    const filename = `os_${order.customerName.toLowerCase().replace(/\s/g, '_')}_${order.id.slice(0,4)}.pdf`;
-    doc.save(filename);
+    // --- DOWNLOAD ---
+    const pdfBlob = doc.output('blob');
+    const url = URL.createObjectURL(pdfBlob);
+    const link = document.createElement('a');
+    const safeName = sanitizeFileName(order.customerName || 'DOC');
+    link.href = url;
+    link.download = `OS_${safeName}_${order.id.split('-')[0]}.pdf`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    
   } catch (err) {
-    console.error(err);
-    alert("Erro ao gerar PDF. Tente novamente.");
+    console.error("Erro fatal na geração do PDF:", err);
+    alert("Erro ao processar o PDF. Certifique-se de que as imagens não são excessivamente pesadas.");
   }
 };
